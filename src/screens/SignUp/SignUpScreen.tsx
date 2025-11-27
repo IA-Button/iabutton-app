@@ -6,29 +6,27 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import appConfig from '../../../app.json';
 import styles from './styles';
-import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 const PLANETS = require('../../../assets/auth_header.png');
 const LOGO = require('../../../assets/logo2025white.png');
 
 export default function SignUpScreen({ navigation }) {
   const version = appConfig.expo?.version ?? '1.0.0';
+  const { signUp, isUserProfileComplete } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const onSignUp = async () => {
     setAttempted(true);
-    if (!name && !email && !password) {
-      Alert.alert('Datos incompletos', 'Por favor completa nombre, correo y contraseña.');
-      return;
-    }
-    if (!name) {
-      Alert.alert('Nombre requerido', 'Ingresa tu nombre.');
+    if (!email && !password && !confirmPassword) {
+      Alert.alert('Datos incompletos', 'Por favor completa correo, contraseña y confirmación.');
       return;
     }
     if (!email) {
@@ -39,25 +37,43 @@ export default function SignUpScreen({ navigation }) {
       Alert.alert('Contraseña requerida', 'Ingresa una contraseña.');
       return;
     }
+    if (!confirmPassword) {
+      Alert.alert('Confirmación requerida', 'Confirma tu contraseña.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('Contraseñas no coinciden', 'Asegúrate de que las contraseñas coincidan.');
+      return;
+    }
+    if (!name) {
+      Alert.alert('Nombre requerido', 'Ingresa tu nombre.');
+      return;
+    }
     try {
       setLoading(true);
-      const data = await api.signUp(name.trim(), email.trim(), password);
+      const created = await signUp(name.trim(), email.trim(), password);
       Alert.alert('Éxito', 'Registro exitoso');
-      navigation.navigate('Home');
+      if (!isUserProfileComplete(created)) {
+        (navigation as any).reset({ index: 0, routes: [{ name: 'Settings' }] });
+      } else {
+        (navigation as any).reset({ index: 0, routes: [{ name: 'chat' }] });
+      }
     } catch (err) {
       Alert.alert('Error de registro', err?.message || 'No fue posible registrar la cuenta');
     } finally {
       setLoading(false);
     }
   };
-  const onGoogle = () => navigation.navigate('Home');
-  const onEmail = () => navigation.navigate('Home');
+  const onGoogle = () => (navigation as any).reset({ index: 0, routes: [{ name: 'chat' }] });
+  const onEmail = () => (navigation as any).reset({ index: 0, routes: [{ name: 'chat' }] });
   const onSignInLink = () => navigation.navigate('SignIn');
   const openTerms = () => Linking.openURL('https://example.com/terms');
 
   const nameError = attempted && name.trim() === '';
   const emailError = attempted && email.trim() === '';
   const passwordError = attempted && password.trim() === '';
+  const confirmError = attempted && confirmPassword.trim() === '';
+  const passwordMismatch = attempted && confirmPassword.trim() !== '' && password.trim() !== '' && confirmPassword !== password;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -137,6 +153,26 @@ export default function SignUpScreen({ navigation }) {
           </Pressable>
         </View>
         {passwordError && <Text style={styles.errorText}>La contraseña es requerida</Text>}
+
+        <View style={[styles.inputBox, { marginTop: 12 }, (confirmError || passwordMismatch) && styles.inputBoxError]}>
+          <Ionicons name="lock-closed-outline" size={20} color="#D0D5DD" style={{ marginRight: 8 }} />
+          <TextInput
+            placeholder="Confirma tu contraseña"
+            placeholderTextColor="#98A2B3"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            style={styles.input}
+          />
+          <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#D0D5DD" />
+          </Pressable>
+        </View>
+        {confirmError && <Text style={styles.errorText}>Confirma tu contraseña</Text>}
+        {passwordMismatch && <Text style={styles.errorText}>Las contraseñas no coinciden</Text>}
 
         <Pressable onPress={onSignUp} disabled={loading} style={({ pressed }) => [styles.primaryWrap, (pressed || loading) && { opacity: 0.95 }]}>
           <LinearGradient

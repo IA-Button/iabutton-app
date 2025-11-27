@@ -6,13 +6,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import appConfig from '../../../app.json';
 import styles from './styles';
-import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 const PLANETS = require('../../../assets/auth_header.png');
 const LOGO = require('../../../assets/logo2025white.png');
 
 export default function SignInScreen({ navigation }) {
   const version = appConfig.expo?.version ?? '1.0.0';
+  const { signIn, isUserProfileComplete } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,18 +37,23 @@ export default function SignInScreen({ navigation }) {
     }
     try {
       setLoading(true);
-      const data = await api.signIn(email.trim(), password);
-      // Si tu API retorna un token, podrías guardarlo aquí.
+      const logged = await signIn(email.trim(), password);
       Alert.alert('Éxito', 'Inicio de sesión correcto');
-      navigation.navigate('Home');
+      if (!isUserProfileComplete(logged)) {
+        Alert.alert('Completa tu perfil', 'Por favor completa todos los datos en Configuración.');
+        (navigation as any).reset({ index: 0, routes: [{ name: 'Settings' }] });
+      } else {
+        (navigation as any).reset({ index: 0, routes: [{ name: 'chat' }] });
+      }
     } catch (err) {
+      console.log('signIn error:', err);
       Alert.alert('Error de inicio de sesión', err?.message || 'No fue posible iniciar sesión');
     } finally {
       setLoading(false);
     }
   };
-  const onGoogle = () => navigation.navigate('Home');
-  const onEmail = () => navigation.navigate('Home');
+  const onGoogle = () => (navigation as any).reset({ index: 0, routes: [{ name: 'Settings' }] });
+  const onEmail = () => (navigation as any).reset({ index: 0, routes: [{ name: 'Settings' }] });
   const onSignUpLink = () => navigation.navigate('SignUp');
   const openTerms = () => Linking.openURL('https://example.com/terms');
 

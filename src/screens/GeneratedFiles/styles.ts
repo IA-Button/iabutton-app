@@ -4,7 +4,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#0b0a2a' },
   gradient: { ...StyleSheet.absoluteFillObject },
   container: { flex: 1 },
-  scroll: { padding: 24, paddingBottom: 180, flexGrow: 1 },
+  scroll: { padding: 24, paddingBottom: 240, flexGrow: 1 },
 
   headerRow: {
     flexDirection: 'row',

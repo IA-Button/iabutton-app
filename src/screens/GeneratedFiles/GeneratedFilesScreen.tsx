@@ -30,7 +30,7 @@ function ItemRow({ item }) {
   );
 }
 
-export default function HomeScreen() {
+export default function GeneratedFilesScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient
