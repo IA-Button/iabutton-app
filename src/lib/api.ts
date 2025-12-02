@@ -9,10 +9,12 @@ const platformBase = Platform.OS === 'android' ? extra.API_BASE_URL_ANDROID
   : undefined;
 // Prefer the global API_BASE_URL. If absent, fall back to platform-specific.
 const BASE_URL = (extra.API_BASE_URL || platformBase || '') as string;
+let CURRENT_BASE_URL: string = BASE_URL;
 const PROFILE_UPDATE_PATH = extra.PROFILE_UPDATE_PATH || '/users/me';
 const PROFILE_UPDATE_METHOD = (extra.PROFILE_UPDATE_METHOD || 'PUT') as string;
 const PROFILE_USER_PATH = extra.PROFILE_USER_PATH || PROFILE_UPDATE_PATH;
 const REQUEST_TIMEOUT_MS: number = Number(extra.REQUEST_TIMEOUT_MS || 10000);
+const DISCOVERY_PORT: number = Number(extra.API_DISCOVERY_PORT || 5000);
 let AUTH_TOKEN: string | null = null;
 
 if (__DEV__) {
@@ -36,7 +38,8 @@ async function request(path: string, { method = 'GET', body, headers = {} }: Req
   if (!BASE_URL) {
     throw new Error('Configura expo.extra.API_BASE_URL en app.json');
   }
-  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+  const base = CURRENT_BASE_URL || BASE_URL;
+  const url = path.startsWith('http') ? path : `${base}${path}`;
   if (__DEV__) {
     // eslint-disable-next-line no-console
     console.log('API request:', method, url);
@@ -86,6 +89,57 @@ async function request(path: string, { method = 'GET', body, headers = {} }: Req
   }
 
   return data as any;
+}
+
+export const getBaseUrl = () => (CURRENT_BASE_URL || BASE_URL) as string;
+
+async function healthCheck(base: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(REQUEST_TIMEOUT_MS, 3000));
+    const res = await fetch(`${base}/test`, { method: 'GET', signal: controller.signal as any });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function candidateScanFrom(base: string): string[] {
+  const m = /^https?:\/\/(\d+)\.(\d+)\.(\d+)\.(\d+)(?::(\d+))?$/i.exec(base);
+  if (!m) return [];
+  const a = Number(m[1]); const b = Number(m[2]); const c = Number(m[3]); const d = Number(m[4]);
+  const port = Number(m[5] || DISCOVERY_PORT);
+  const prefix = `http://${a}.${b}.${c}.`;
+  const list: string[] = [];
+  for (let i = 2; i <= 30; i++) {
+    if (i === d) continue;
+    list.push(`${prefix}${i}:${port}`);
+  }
+  // Emulator handy candidate
+  if (Platform.OS === 'android') list.unshift(`http://10.0.2.2:${port}`);
+  return list;
+}
+
+export async function ensureBaseUrlHealthy(): Promise<string | null> {
+  const base = CURRENT_BASE_URL || BASE_URL;
+  if (await healthCheck(base)) return base;
+  const extrasList: string[] = [];
+  if (platformBase) extrasList.push(platformBase);
+  if (extra.API_BASE_URL) extrasList.push(extra.API_BASE_URL);
+  if (extra.API_BASE_URL_ANDROID && Platform.OS === 'android') extrasList.push(extra.API_BASE_URL_ANDROID);
+  if (extra.API_BASE_URL_IOS && Platform.OS === 'ios') extrasList.push(extra.API_BASE_URL_IOS);
+  if (extra.API_BASE_URL_WEB && Platform.OS === 'web') extrasList.push(extra.API_BASE_URL_WEB);
+  const scan = candidateScanFrom(base);
+  const candidates = [...new Set([...extrasList, ...scan])].filter(Boolean);
+  for (const cand of candidates) {
+    if (await healthCheck(cand)) {
+      CURRENT_BASE_URL = cand;
+      if (__DEV__) console.log('API base switched to', cand);
+      return cand;
+    }
+  }
+  return null;
 }
 
 export const api = {

@@ -7,6 +7,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import appConfig from '../../../app.json';
 import styles from './styles';
 import { useAuth } from '../../context/AuthContext';
+import { getBaseUrl } from '../../lib/api';
 
 const PLANETS = require('../../../assets/auth_header.png');
 const LOGO = require('../../../assets/logo2025white.png');
@@ -45,9 +46,39 @@ export default function SignInScreen({ navigation }) {
       } else {
         (navigation as any).reset({ index: 0, routes: [{ name: 'chat' }] });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.log('signIn error:', err);
-      Alert.alert('Error de inicio de sesión', err?.message || 'No fue posible iniciar sesión');
+      const msg = String(err?.message || 'Network error');
+      if (/Network request failed|Failed to fetch|Timeout/i.test(msg)) {
+        // Intento de autodescubrimiento y reintento 1 vez
+        const { ensureBaseUrlHealthy } = await import('../../lib/api');
+        const found = await ensureBaseUrlHealthy();
+        if (found) {
+          try {
+            const logged = await signIn(email.trim(), password);
+            Alert.alert('Éxito', 'Inicio de sesión correcto');
+            if (!isUserProfileComplete(logged)) {
+              Alert.alert('Completa tu perfil', 'Por favor completa todos los datos en Configuración.');
+              (navigation as any).reset({ index: 0, routes: [{ name: 'Settings' }] });
+            } else {
+              (navigation as any).reset({ index: 0, routes: [{ name: 'chat' }] });
+            }
+            return;
+          } catch (e2) {
+            // cae al mensaje estándar
+          }
+        }
+        Alert.alert(
+          'No se pudo conectar con el servidor',
+          `No fue posible alcanzar la API en ${getBaseUrl()}.
+- Asegúrate de que la API esté ejecutándose.
+- Que el teléfono y el PC estén en la misma Wi‑Fi.
+- Si usas IP LAN, que no haya cambiado.
+- Prueba en el navegador del teléfono: ${getBaseUrl()}/test`
+        );
+      } else {
+        Alert.alert('Error de inicio de sesión', msg);
+      }
     } finally {
       setLoading(false);
     }
