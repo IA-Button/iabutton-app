@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, ScrollView, TextInput, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -61,6 +61,17 @@ export default function ChatScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+
+  // Poll ligero para mantener el estado del icono en sincronía con el motor TTS
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const speaking = await Speech.isSpeakingAsync();
+        if (!speaking && speakingId) setSpeakingId(null);
+      } catch {}
+    }, 700);
+    return () => clearInterval(id);
+  }, [speakingId]);
 
   type UserTextMsg = { id: string; role: 'user'; type?: 'text'; text: string };
   const isUserText = (m: Message): m is UserTextMsg => m.role === 'user' && (m as any).text !== undefined;
@@ -248,7 +259,7 @@ export default function ChatScreen() {
     // Detener cualquier lectura previa.
     try { Speech.stop(); } catch {}
 
-    // Seleccionar voz en español si existe; si no, usar por defecto sin forzar idioma.
+    // Seleccionar una voz española simple (como antes) si existe; en caso contrario usar idioma por defecto es-ES.
     let voiceId: string | undefined;
     let voiceLang: string | undefined;
     try {
@@ -263,15 +274,14 @@ export default function ChatScreen() {
     // Mostrar cambio de icono inmediatamente.
     setSpeakingId(m.id);
 
-    const optsBase: any = {
+    const opts: any = {
       rate: 1.0,
       pitch: 1.0,
+      language: 'es-ES',
       onStart: () => setSpeakingId(m.id),
       onDone: () => setSpeakingId(null),
       onError: () => setSpeakingId(null),
     };
-
-    const opts = { ...optsBase } as any;
     if (voiceId) {
       opts.voice = voiceId;
       if (voiceLang) opts.language = voiceLang;
@@ -279,16 +289,15 @@ export default function ChatScreen() {
 
     Speech.speak(text, opts);
 
-    // Verificar que realmente comenzó a hablar; si no, hacer fallback y avisar.
+    // Verificar que realmente comenzó a hablar; si no, hacer fallback sin opciones explícitas.
     setTimeout(async () => {
       try {
         const speaking = await Speech.isSpeakingAsync();
         if (!speaking) {
-          setSpeakingId(null);
-          // Fallback: intentar sin ninguna opción (voz/idioma por defecto)
           Speech.speak(text, {
             rate: 1.0,
             pitch: 1.0,
+            onStart: () => setSpeakingId(m.id),
             onDone: () => setSpeakingId(null),
             onError: () => setSpeakingId(null),
           } as any);
