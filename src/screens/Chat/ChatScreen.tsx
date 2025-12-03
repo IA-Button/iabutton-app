@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import * as Speech from 'expo-speech';
 import styles from './styles';
 import BottomBar from '../../components/BottomBar/BottomBar';
 import { getBaseUrl, ensureBaseUrlHealthy } from '../../lib/api';
@@ -12,7 +13,7 @@ import { getBaseUrl, ensureBaseUrlHealthy } from '../../lib/api';
   | { id: string; role: 'user' | 'assistant'; type?: 'text'; text: string }
   | { id: string; role: 'assistant'; type: 'weather'; tempC: number; condition: string; city: string; tip?: string };
 
-function Bubble({ m }: { m: Message }) {
+function Bubble({ m, speakingId, onToggleSpeak }: { m: Message; speakingId: string | null; onToggleSpeak: (m: Message) => void }) {
   if (m.type === 'weather') {
     return (
       <View style={[styles.row, styles.left]}>
@@ -26,15 +27,21 @@ function Bubble({ m }: { m: Message }) {
   }
 
   const isUser = m.role === 'user';
+  const isAssistantText = m.role === 'assistant' && (m as any).text !== undefined;
   return (
     <View style={[styles.row, isUser ? styles.right : styles.left]}>
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-        <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{m.text}</Text>
+        <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{(m as any).text}</Text>
       </View>
       {!isUser && (
         <View style={styles.actionsRow}>
           <Pressable style={styles.actionBtn}><Ionicons name="heart-outline" size={16} color="#E4E7EC" /></Pressable>
           <Pressable style={styles.actionBtn}><Ionicons name="add-circle-outline" size={16} color="#E4E7EC" /></Pressable>
+          {isAssistantText && (
+            <Pressable style={styles.actionBtn} onPress={() => onToggleSpeak(m)} hitSlop={8}>
+              <Ionicons name={speakingId === m.id ? 'stop-circle-outline' : 'volume-high-outline'} size={16} color="#E4E7EC" />
+            </Pressable>
+          )}
         </View>
       )}
     </View>
@@ -53,6 +60,7 @@ export default function ChatScreen() {
   const gotFirstChunkRef = useRef<boolean>(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
 
   type UserTextMsg = { id: string; role: 'user'; type?: 'text'; text: string };
   const isUserText = (m: Message): m is UserTextMsg => m.role === 'user' && (m as any).text !== undefined;
@@ -225,6 +233,70 @@ export default function ChatScreen() {
     if (isRecording) await stopRecording(); else await startRecording();
   };
 
+  const toggleSpeakFor = async (m: Message) => {
+    if (m.role !== 'assistant' || (m as any).text === undefined) return;
+    const text = String((m as any).text || '').trim();
+    if (!text) return;
+
+    // Si ya está leyendo este mismo mensaje, detener.
+    if (speakingId === m.id) {
+      try { Speech.stop(); } catch {}
+      setSpeakingId(null);
+      return;
+    }
+
+    // Detener cualquier lectura previa.
+    try { Speech.stop(); } catch {}
+
+    // Seleccionar voz en español si existe; si no, usar por defecto sin forzar idioma.
+    let voiceId: string | undefined;
+    let voiceLang: string | undefined;
+    try {
+      const voices: any[] = (await Speech.getAvailableVoicesAsync()) || [];
+      const es = voices.find(v => String(v?.language || '').toLowerCase().startsWith('es'));
+      if (es?.identifier) {
+        voiceId = es.identifier;
+        voiceLang = es.language;
+      }
+    } catch {}
+
+    // Mostrar cambio de icono inmediatamente.
+    setSpeakingId(m.id);
+
+    const optsBase: any = {
+      rate: 1.0,
+      pitch: 1.0,
+      onStart: () => setSpeakingId(m.id),
+      onDone: () => setSpeakingId(null),
+      onError: () => setSpeakingId(null),
+    };
+
+    const opts = { ...optsBase } as any;
+    if (voiceId) {
+      opts.voice = voiceId;
+      if (voiceLang) opts.language = voiceLang;
+    }
+
+    Speech.speak(text, opts);
+
+    // Verificar que realmente comenzó a hablar; si no, hacer fallback y avisar.
+    setTimeout(async () => {
+      try {
+        const speaking = await Speech.isSpeakingAsync();
+        if (!speaking) {
+          setSpeakingId(null);
+          // Fallback: intentar sin ninguna opción (voz/idioma por defecto)
+          Speech.speak(text, {
+            rate: 1.0,
+            pitch: 1.0,
+            onDone: () => setSpeakingId(null),
+            onError: () => setSpeakingId(null),
+          } as any);
+        }
+      } catch {}
+    }, 600);
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient colors={["#0b0a2a", "#24124a"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradient} />
@@ -234,7 +306,7 @@ export default function ChatScreen() {
         >
           <View style={styles.topSpacer} />
           {messages.map((m) => (
-            <Bubble key={m.id} m={m} />
+            <Bubble key={m.id} m={m} speakingId={speakingId} onToggleSpeak={toggleSpeakFor} />
           ))}
         </ScrollView>
 
